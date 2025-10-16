@@ -1,0 +1,176 @@
+services:
+  db:
+    image: mysql:8.0
+    container_name: fuel50-mysql
+    environment:
+      - MYSQL_DATABASE=${MYSQL_DATABASE}
+      - MYSQL_USER=${MYSQL_USER}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p$$MYSQL_ROOT_PASSWORD"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: fuel50-ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0:11434
+      - OLLAMA_MODEL=${OLLAMA_MODEL}
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+    command: ["serve"]
+
+  ollama-init:
+    image: ollama/ollama:latest
+    container_name: fuel50-ollama-init
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+      - OLLAMA_MODEL=${OLLAMA_MODEL}
+    volumes:
+      - ollama_data:/root/.ollama
+    depends_on:
+      ollama:
+        condition: service_healthy
+    entrypoint: ["/bin/sh","-lc","ollama pull ${OLLAMA_MODEL}"]
+    restart: "no"
+
+  action-service:
+    build:
+      context: .
+      dockerfile: apps/action-service/Dockerfile
+    container_name: fuel50-action
+    environment:
+      - SERVER_PORT=${ACTION_SERVICE_PORT}
+      - SPRING_R2DBC_URL=${SPRING_R2DBC_URL}
+      - SPRING_R2DBC_USERNAME=${SPRING_R2DBC_USERNAME}
+      - SPRING_R2DBC_PASSWORD=${SPRING_R2DBC_PASSWORD}
+      - SPRING_SQL_INIT_MODE=${SPRING_SQL_INIT_MODE}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${ACTION_SERVICE_PORT}:${ACTION_SERVICE_PORT}"
+    restart: unless-stopped
+
+  company-service:
+    build:
+      context: .
+      dockerfile: apps/company-service/Dockerfile
+    container_name: fuel50-company
+    environment:
+      - SERVER_PORT=${COMPANY_SERVICE_PORT}
+      - SPRING_R2DBC_URL=${SPRING_R2DBC_URL}
+      - SPRING_R2DBC_USERNAME=${SPRING_R2DBC_USERNAME}
+      - SPRING_R2DBC_PASSWORD=${SPRING_R2DBC_PASSWORD}
+      - SPRING_SQL_INIT_MODE=${SPRING_SQL_INIT_MODE}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${COMPANY_SERVICE_PORT}:${COMPANY_SERVICE_PORT}"
+    restart: unless-stopped
+
+  activity-service:
+    build:
+      context: .
+      dockerfile: apps/activity-service/Dockerfile
+    container_name: fuel50-activity
+    environment:
+      - SERVER_PORT=${ACTIVITY_SERVICE_PORT}
+      - SPRING_R2DBC_URL=${SPRING_R2DBC_URL}
+      - SPRING_R2DBC_USERNAME=${SPRING_R2DBC_USERNAME}
+      - SPRING_R2DBC_PASSWORD=${SPRING_R2DBC_PASSWORD}
+      - SPRING_SQL_INIT_MODE=${SPRING_SQL_INIT_MODE}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${ACTIVITY_SERVICE_PORT}:${ACTIVITY_SERVICE_PORT}"
+    restart: unless-stopped
+
+  rating-service:
+    build:
+      context: .
+      dockerfile: apps/rating-service/Dockerfile
+    container_name: fuel50-rating
+    environment:
+      - SERVER_PORT=${RATING_SERVICE_PORT}
+      - SPRING_R2DBC_URL=${SPRING_R2DBC_URL}
+      - SPRING_R2DBC_USERNAME=${SPRING_R2DBC_USERNAME}
+      - SPRING_R2DBC_PASSWORD=${SPRING_R2DBC_PASSWORD}
+      - SPRING_SQL_INIT_MODE=${SPRING_SQL_INIT_MODE}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${RATING_SERVICE_PORT}:${RATING_SERVICE_PORT}"
+    restart: unless-stopped
+
+  user-service:
+    build:
+      context: .
+      dockerfile: apps/user-service/Dockerfile
+    container_name: fuel50-user
+    environment:
+      - SERVER_PORT=${USER_SERVICE_PORT}
+      - SPRING_R2DBC_URL=${SPRING_R2DBC_URL}
+      - SPRING_R2DBC_USERNAME=${SPRING_R2DBC_USERNAME}
+      - SPRING_R2DBC_PASSWORD=${SPRING_R2DBC_PASSWORD}
+      - SPRING_SQL_INIT_MODE=${SPRING_SQL_INIT_MODE}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${USER_SERVICE_PORT}:${USER_SERVICE_PORT}"
+    restart: unless-stopped
+
+  data-generator-service:
+    build:
+      context: .
+      dockerfile: apps/data-generator-service/Dockerfile
+    container_name: fuel50-data-generator
+    environment:
+      - SERVER_PORT=${DATA_GENERATOR_SERVICE_PORT}
+      - SPRING_R2DBC_URL=${SPRING_R2DBC_URL}
+      - SPRING_R2DBC_USERNAME=${SPRING_R2DBC_USERNAME}
+      - SPRING_R2DBC_PASSWORD=${SPRING_R2DBC_PASSWORD}
+      - SPRING_SQL_INIT_MODE=${SPRING_SQL_INIT_MODE}
+      - SPRING_AI_OLLAMA_BASE_URL=${SPRING_AI_OLLAMA_BASE_URL}
+      - SPRING_AI_OLLAMA_CHAT_OPTIONS_MODEL=${SPRING_AI_OLLAMA_CHAT_OPTIONS_MODEL}
+      - SPRING_AI_OLLAMA_CHAT_OPTIONS_TEMPERATURE=${SPRING_AI_OLLAMA_CHAT_OPTIONS_TEMPERATURE}
+      - CLIENTS_COMPANY_BASE_URL=${CLIENTS_COMPANY_BASE_URL}
+      - CLIENTS_USER_BASE_URL=${CLIENTS_USER_BASE_URL}
+      - CLIENTS_ACTIVITY_BASE_URL=${CLIENTS_ACTIVITY_BASE_URL}
+      - CLIENTS_ACTION_BASE_URL=${CLIENTS_ACTION_BASE_URL}
+      - CLIENTS_USER_ACTIVITY_BASE_URL=${CLIENTS_USER_ACTIVITY_BASE_URL}
+    depends_on:
+      db:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+      ollama-init:
+        condition: service_completed_successfully
+    ports:
+      - "${DATA_GENERATOR_SERVICE_PORT}:${DATA_GENERATOR_SERVICE_PORT}"
+    restart: unless-stopped
+
+volumes:
+  mysql_data:
+  ollama_data:

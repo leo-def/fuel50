@@ -1,0 +1,591 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fuel50
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fuel50-config
+  namespace: fuel50
+data:
+  # Default service port used in Kubernetes (ClusterIP services expose 8080)
+  SERVER_PORT: "8080"
+  # R2DBC connection string pointing to MySQL service inside the cluster
+  SPRING_R2DBC_URL: "r2dbc:mysql://mysql:3306/fuel50"
+  SPRING_R2DBC_USERNAME: "app_user"
+  SPRING_SQL_INIT_MODE: "never"
+  # Ollama (LLM API) base URL used by data-generator-service
+  SPRING_AI_OLLAMA_BASE_URL: "http://ollama:11434/"
+  SPRING_AI_OLLAMA_CHAT_OPTIONS_MODEL: "llama3"
+  SPRING_AI_OLLAMA_CHAT_OPTIONS_TEMPERATURE: "0.0"
+  # Client base URLs for data-generator-service (service discovery via DNS)
+  CLIENTS_COMPANY_BASE_URL: "http://company-service:8080"
+  CLIENTS_USER_BASE_URL: "http://user-service:8080"
+  CLIENTS_ACTIVITY_BASE_URL: "http://activity-service:8080"
+  CLIENTS_ACTION_BASE_URL: "http://action-service:8080"
+  CLIENTS_USER_ACTIVITY_BASE_URL: "http://activity-service:8080"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: fuel50-secrets
+  namespace: fuel50
+type: Opaque
+stringData:
+  SPRING_R2DBC_PASSWORD: "app_password"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+  namespace: fuel50
+spec:
+  selector:
+    app: mysql
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: 3306
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mysql
+  namespace: fuel50
+spec:
+  serviceName: mysql
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      containers:
+        - name: mysql
+          image: mysql:8.0
+          ports:
+            - containerPort: 3306
+          env:
+            - name: MYSQL_DATABASE
+              value: "fuel50"
+            - name: MYSQL_USER
+              value: "app_user"
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: fuel50-secrets
+                  key: SPRING_R2DBC_PASSWORD
+            - name: MYSQL_ROOT_PASSWORD
+              value: "changeme"
+          volumeMounts:
+            - name: mysql-data
+              mountPath: /var/lib/mysql
+  volumeClaimTemplates:
+    - metadata:
+        name: mysql-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama
+  namespace: fuel50
+spec:
+  selector:
+    app: ollama
+  ports:
+    - name: http
+      port: 11434
+      targetPort: 11434
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+  namespace: fuel50
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ollama
+  template:
+    metadata:
+      labels:
+        app: ollama
+    spec:
+      containers:
+        - name: ollama
+          image: ollama/ollama:latest
+          ports:
+            - containerPort: 11434
+          env:
+            - name: OLLAMA_HOST
+              value: "0.0.0.0:11434"
+            - name: OLLAMA_MODEL
+              value: "llama3"
+          command: ["/bin/sh","-lc"]
+          args:
+            - >
+              ollama serve &
+              for i in $(seq 1 30);
+              do curl -sSf http://localhost:11434/api/version && break || sleep 1;
+              done;
+              ollama pull ${OLLAMA_MODEL};
+              wait
+---
+apiVersion: v1
+kind: Service
+metadata:
+  # MySQL service provides stable DNS name for DB access
+  name: mysql
+  namespace: fuel50
+spec:
+  selector:
+    app: mysql
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: 3306
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mysql
+  namespace: fuel50
+spec:
+  serviceName: mysql
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      containers:
+        - name: mysql
+          image: mysql:8.0
+          ports:
+            - containerPort: 3306
+          env:
+            - name: MYSQL_DATABASE
+              value: "fuel50"
+            - name: MYSQL_USER
+              value: "app_user"
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: fuel50-secrets
+                  key: SPRING_R2DBC_PASSWORD
+            - name: MYSQL_ROOT_PASSWORD
+              value: "changeme"
+          volumeMounts:
+            - name: mysql-data
+              mountPath: /var/lib/mysql
+  volumeClaimTemplates:
+    - metadata:
+        name: mysql-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi
+
+---
+# Ollama (LLM) service and deployment
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama
+  namespace: fuel50
+spec:
+  selector:
+    app: ollama
+  ports:
+    - name: http
+      port: 11434
+      targetPort: 11434
+  type: ClusterIP
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+  namespace: fuel50
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ollama
+  template:
+    metadata:
+      labels:
+        app: ollama
+    spec:
+      containers:
+        - name: ollama
+          image: ollama/ollama:latest
+          ports:
+            - containerPort: 11434
+          env:
+            - name: OLLAMA_HOST
+              value: "0.0.0.0:11434"
+            - name: OLLAMA_MODEL
+              value: "llama3"
+          command: ["/bin/sh","-lc"]
+          args:
+            - >
+              ollama serve &
+              for i in $(seq 1 30);
+              do curl -sSf http://localhost:11434/api/version && break || sleep 1;
+              done;
+              ollama pull ${OLLAMA_MODEL};
+              wait
+
+---
+# Microservices: Service + Deployment per app. Replace image values with your registry.
+apiVersion: v1
+kind: Service
+metadata:
+  name: company-service
+  namespace: fuel50
+  labels:
+    app: company-service
+spec:
+  selector:
+    app: company-service
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+  type: ClusterIP
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: company-service
+  namespace: fuel50
+  labels:
+    app: company-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: company-service
+  template:
+    metadata:
+      labels:
+        app: company-service
+    spec:
+      containers:
+        - name: company-service
+          image: ghcr.io/your-org/company-service:latest # TODO: set to your image
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: fuel50-config
+            - secretRef:
+                name: fuel50-secrets
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-service
+  namespace: fuel50
+  labels:
+    app: user-service
+spec:
+  selector:
+    app: user-service
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+  type: ClusterIP
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-service
+  namespace: fuel50
+  labels:
+    app: user-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: user-service
+  template:
+    metadata:
+      labels:
+        app: user-service
+    spec:
+      containers:
+        - name: user-service
+          image: ghcr.io/your-org/user-service:latest # TODO: set to your image
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: fuel50-config
+            - secretRef:
+                name: fuel50-secrets
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: activity-service
+  namespace: fuel50
+  labels:
+    app: activity-service
+spec:
+  selector:
+    app: activity-service
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+  type: ClusterIP
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: activity-service
+  namespace: fuel50
+  labels:
+    app: activity-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: activity-service
+  template:
+    metadata:
+      labels:
+        app: activity-service
+    spec:
+      containers:
+        - name: activity-service
+          image: ghcr.io/your-org/activity-service:latest # TODO: set to your image
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: fuel50-config
+            - secretRef:
+                name: fuel50-secrets
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: action-service
+  namespace: fuel50
+  labels:
+    app: action-service
+spec:
+  selector:
+    app: action-service
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+  type: ClusterIP
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: action-service
+  namespace: fuel50
+  labels:
+    app: action-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: action-service
+  template:
+    metadata:
+      labels:
+        app: action-service
+    spec:
+      containers:
+        - name: action-service
+          image: ghcr.io/your-org/action-service:latest # TODO: set to your image
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: fuel50-config
+            - secretRef:
+                name: fuel50-secrets
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rating-service
+  namespace: fuel50
+  labels:
+    app: rating-service
+spec:
+  selector:
+    app: rating-service
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+  type: ClusterIP
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rating-service
+  namespace: fuel50
+  labels:
+    app: rating-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rating-service
+  template:
+    metadata:
+      labels:
+        app: rating-service
+    spec:
+      containers:
+        - name: rating-service
+          image: ghcr.io/your-org/rating-service:latest # TODO: set to your image
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: fuel50-config
+            - secretRef:
+                name: fuel50-secrets
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: data-generator-service
+  namespace: fuel50
+  labels:
+    app: data-generator-service
+spec:
+  selector:
+    app: data-generator-service
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+  type: ClusterIP
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: data-generator-service
+  namespace: fuel50
+  labels:
+    app: data-generator-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: data-generator-service
+  template:
+    metadata:
+      labels:
+        app: data-generator-service
+    spec:
+      containers:
+        - name: data-generator-service
+          image: ghcr.io/your-org/data-generator-service:latest # TODO: set to your image
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: fuel50-config
+            - secretRef:
+                name: fuel50-secrets
+
+---
+# Optional: Ingress to expose a single entrypoint with path-based routing.
+# Requires an Ingress controller (e.g., nginx). Adjust host as needed.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: fuel50-ingress
+  namespace: fuel50
+  annotations:
+    kubernetes.io/ingress.class: nginx
+spec:
+  rules:
+    - host: fuel50.local
+      http:
+        paths:
+          - path: /company
+            pathType: Prefix
+            backend:
+              service:
+                name: company-service
+                port:
+                  number: 8080
+          - path: /user
+            pathType: Prefix
+            backend:
+              service:
+                name: user-service
+                port:
+                  number: 8080
+          - path: /activity
+            pathType: Prefix
+            backend:
+              service:
+                name: activity-service
+                port:
+                  number: 8080
+          - path: /action
+            pathType: Prefix
+            backend:
+              service:
+                name: action-service
+                port:
+                  number: 8080
+          - path: /rating
+            pathType: Prefix
+            backend:
+              service:
+                name: rating-service
+                port:
+                  number: 8080
+          - path: /prompt
+            pathType: Prefix
+            backend:
+              service:
+                name: data-generator-service
+                port:
+                  number: 8080

@@ -1,0 +1,19 @@
+spring:
+  application:
+    name: fuel50-app
+  r2dbc:
+    url: ${SPRING_R2DBC_URL:r2dbc:mysql://localhost:3306/fuel50}
+    username: ${SPRING_R2DBC_USERNAME:root}
+    password: ${SPRING_R2DBC_PASSWORD:password}
+  sql:
+    init:
+      mode: ${SPRING_SQL_INIT_MODE:never}
+
+server:
+  port: ${SERVER_PORT:8081}
+
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true

@@ -1,0 +1,39 @@
+spring:
+  application:
+    name: fuel50-app
+  r2dbc:
+    url: ${SPRING_R2DBC_URL:r2dbc:mysql://localhost:3306/fuel50}
+    username: ${SPRING_R2DBC_USERNAME:root}
+    password: ${SPRING_R2DBC_PASSWORD:password}
+  sql:
+    init:
+      mode: ${SPRING_SQL_INIT_MODE:never}
+  ai:
+    ollama:
+      base-url: ${SPRING_AI_OLLAMA_BASE_URL:http://localhost:11434/}
+      chat:
+        options:
+          model: ${SPRING_AI_OLLAMA_CHAT_OPTIONS_MODEL:llama3}
+          temperature: ${SPRING_AI_OLLAMA_CHAT_OPTIONS_TEMPERATURE:0.0}
+          format: ${SPRING_AI_OLLAMA_CHAT_OPTIONS_FORMAT:json}
+
+server:
+  port: ${SERVER_PORT:8083}
+
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+
+clients:
+  company:
+    base-url: ${CLIENTS_COMPANY_BASE_URL:http://localhost:8082}
+  user:
+    base-url: ${CLIENTS_USER_BASE_URL:http://localhost:8085}
+  activity:
+    base-url: ${CLIENTS_ACTIVITY_BASE_URL:http://localhost:8082}
+  action:
+    base-url: ${CLIENTS_ACTION_BASE_URL:http://localhost:8081}
+  user-activity:
+    base-url: ${CLIENTS_USER_ACTIVITY_BASE_URL:http://localhost:8082}

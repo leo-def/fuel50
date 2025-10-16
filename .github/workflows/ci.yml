@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - 'feature/**'
+  pull_request:
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*','**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Build with Gradle
+        run: ./gradlew clean build --no-daemon
+
+      - name: Validate docker-compose.yml
+        run: docker compose -f docker-compose.yml config
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build app image (no push)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: app/Dockerfile
+          platforms: linux/amd64
+          push: false
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/fuel50-app:ci-${{ github.sha }}
+
+      - name: Fake deploy
+        if: github.ref_name == 'develop' || github.ref_name == 'main'
+        run: |
+          echo "Branch: ${{ github.ref_name }}"
+          if [ "${{ github.ref_name }}" = "develop" ]; then
+            echo "Simulating deploy to STAGING..."
+          else
+            echo "Simulating deploy to PRODUCTION..."
+          fi
+
+      - name: Kubernetes example (dry-run only)
+        if: github.ref_name == 'develop' || github.ref_name == 'main'
+        run: |
+          curl -sSL -o /usr/local/bin/kubectl https://dl.k8s.io/release/v1.30.0/bin/linux/amd64/kubectl
+          chmod +x /usr/local/bin/kubectl
+          kubectl version --client
+          echo "Rendering k8s manifests (dry-run=client)"
+          kubectl apply --dry-run=client -f k8s/stack.yaml
